@@ -29,9 +29,10 @@ import requests
 FD_API_PORT = int(os.getenv("FD_API_PORT", 8188))
 FD_ENGINE_QUEUE_PORT = int(os.getenv("FD_ENGINE_QUEUE_PORT", 8133))
 FD_METRICS_PORT = int(os.getenv("FD_METRICS_PORT", 8233))
+FD_CACHE_QUEUE_PORT = int(os.getenv("FD_CACHE_QUEUE_PORT", 8333))
 
 # List of ports to clean before and after tests
-PORTS_TO_CLEAN = [FD_API_PORT, FD_ENGINE_QUEUE_PORT, FD_METRICS_PORT]
+PORTS_TO_CLEAN = [FD_API_PORT, FD_ENGINE_QUEUE_PORT, FD_METRICS_PORT, FD_CACHE_QUEUE_PORT]
 
 
 def is_port_open(host: str, port: int, timeout=1.0):
@@ -110,6 +111,8 @@ def setup_and_run_server():
         str(FD_ENGINE_QUEUE_PORT),
         "--metrics-port",
         str(FD_METRICS_PORT),
+        "--cache-queue-port",
+        str(FD_CACHE_QUEUE_PORT),
         "--max-model-len",
         "32768",
         "--max-num-seqs",
@@ -679,6 +682,7 @@ def test_non_streaming_completion_with_prompt_token_ids(openai_client, capsys):
     """
     Test prompt_token_ids option in streaming completion functionality with the local service
     """
+    # Test case for passing a token id list in `prompt_token_ids`
     response = openai_client.completions.create(
         model="default",
         prompt="",
@@ -687,17 +691,49 @@ def test_non_streaming_completion_with_prompt_token_ids(openai_client, capsys):
         extra_body={"prompt_token_ids": [5209, 626, 274, 45954, 1071, 3265, 3934, 1869, 93937]},
         stream=False,
     )
-    assert hasattr(response, "choices")
-    assert len(response.choices) > 0
-    assert hasattr(response, "usage")
-    assert hasattr(response.usage, "prompt_tokens")
+    assert len(response.choices) == 1
     assert response.usage.prompt_tokens == 9
+
+    # Test case for passing a batch of token id lists in `prompt_token_ids`
+    response = openai_client.completions.create(
+        model="default",
+        prompt="",
+        temperature=1,
+        max_tokens=5,
+        extra_body={"prompt_token_ids": [[5209, 626, 274, 45954, 1071, 3265, 3934, 1869, 93937], [1, 2, 3]]},
+        stream=False,
+    )
+    assert len(response.choices) == 2
+    assert response.usage.prompt_tokens == 9 + 3
+
+    # Test case for passing a token id list in `prompt`
+    response = openai_client.completions.create(
+        model="default",
+        prompt=[5209, 626, 274, 45954, 1071, 3265, 3934, 1869, 93937],
+        temperature=1,
+        max_tokens=5,
+        stream=False,
+    )
+    assert len(response.choices) == 1
+    assert response.usage.prompt_tokens == 9
+
+    # Test case for passing a batch of token id lists in `prompt`
+    response = openai_client.completions.create(
+        model="default",
+        prompt=[[5209, 626, 274, 45954, 1071, 3265, 3934, 1869, 93937], [1, 2, 3]],
+        temperature=1,
+        max_tokens=5,
+        stream=False,
+    )
+    assert len(response.choices) == 2
+    assert response.usage.prompt_tokens == 9 + 3
 
 
 def test_streaming_completion_with_prompt_token_ids(openai_client, capsys):
     """
     Test prompt_token_ids option in non-streaming completion functionality with the local service
     """
+    # Test case for passing a token id list in `prompt_token_ids`
     response = openai_client.completions.create(
         model="default",
         prompt="",
@@ -707,14 +743,65 @@ def test_streaming_completion_with_prompt_token_ids(openai_client, capsys):
         stream=True,
         stream_options={"include_usage": True},
     )
+    sum_prompt_tokens = 0
     for chunk in response:
-        assert hasattr(chunk, "choices")
-        assert hasattr(chunk, "usage")
         if len(chunk.choices) > 0:
             assert chunk.usage is None
         else:
-            assert hasattr(chunk.usage, "prompt_tokens")
-            assert chunk.usage.prompt_tokens == 9
+            sum_prompt_tokens += chunk.usage.prompt_tokens
+    assert sum_prompt_tokens == 9
+
+    # Test case for passing a batch of token id lists in `prompt_token_ids`
+    response = openai_client.completions.create(
+        model="default",
+        prompt="",
+        temperature=1,
+        max_tokens=5,
+        extra_body={"prompt_token_ids": [[5209, 626, 274, 45954, 1071, 3265, 3934, 1869, 93937], [1, 2, 3]]},
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+    sum_prompt_tokens = 0
+    for chunk in response:
+        if len(chunk.choices) > 0:
+            assert chunk.usage is None
+        else:
+            sum_prompt_tokens += chunk.usage.prompt_tokens
+    assert sum_prompt_tokens == 9 + 3
+
+    # Test case for passing a token id list in `prompt`
+    response = openai_client.completions.create(
+        model="default",
+        prompt=[5209, 626, 274, 45954, 1071, 3265, 3934, 1869, 93937],
+        temperature=1,
+        max_tokens=5,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+    sum_prompt_tokens = 0
+    for chunk in response:
+        if len(chunk.choices) > 0:
+            assert chunk.usage is None
+        else:
+            sum_prompt_tokens += chunk.usage.prompt_tokens
+    assert sum_prompt_tokens == 9
+
+    # Test case for passing a batch of token id lists in `prompt`
+    response = openai_client.completions.create(
+        model="default",
+        prompt=[[5209, 626, 274, 45954, 1071, 3265, 3934, 1869, 93937], [1, 2, 3]],
+        temperature=1,
+        max_tokens=5,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+    sum_prompt_tokens = 0
+    for chunk in response:
+        if len(chunk.choices) > 0:
+            assert chunk.usage is None
+        else:
+            sum_prompt_tokens += chunk.usage.prompt_tokens
+    assert sum_prompt_tokens == 9 + 3
 
 
 def test_non_streaming_chat_completion_disable_chat_template(openai_client, capsys):
@@ -733,8 +820,8 @@ def test_non_streaming_chat_completion_disable_chat_template(openai_client, caps
     assert hasattr(enabled_response, "choices")
     assert len(enabled_response.choices) > 0
 
-    # from fastdeploy.input.ernie_tokenizer import ErnieBotTokenizer
-    # tokenizer = ErnieBotTokenizer.from_pretrained("PaddlePaddle/ERNIE-4.5-0.3B-Paddle", trust_remote_code=True)
+    # from fastdeploy.input.ernie4_5_tokenizer import Ernie4_5Tokenizer
+    # tokenizer = Ernie4_5Tokenizer.from_pretrained("PaddlePaddle/ERNIE-4.5-0.3B-Paddle", trust_remote_code=True)
     # prompt = tokenizer.apply_chat_template([{"role": "user", "content": "Hello, how are you?"}], tokenize=False)
     prompt = "<|begin_of_sentence|>User: Hello, how are you?\nAssistant: "
     disabled_response = openai_client.chat.completions.create(
@@ -816,9 +903,9 @@ def test_non_streaming_chat_with_bad_words(openai_client, capsys):
     assert hasattr(response_0.choices[0].message, "completion_token_ids")
     assert isinstance(response_0.choices[0].message.completion_token_ids, list)
 
-    from fastdeploy.input.ernie_tokenizer import ErnieBotTokenizer
+    from fastdeploy.input.ernie4_5_tokenizer import Ernie4_5Tokenizer
 
-    tokenizer = ErnieBotTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    tokenizer = Ernie4_5Tokenizer.from_pretrained(model_path, trust_remote_code=True)
     output_tokens_0 = []
     output_ids_0 = []
     for ids in response_0.choices[0].message.completion_token_ids:
@@ -972,9 +1059,9 @@ def test_non_streaming_completion_with_bad_words(openai_client, capsys):
     assert hasattr(response_0.choices[0], "completion_token_ids")
     assert isinstance(response_0.choices[0].completion_token_ids, list)
 
-    from fastdeploy.input.ernie_tokenizer import ErnieBotTokenizer
+    from fastdeploy.input.ernie4_5_tokenizer import Ernie4_5Tokenizer
 
-    tokenizer = ErnieBotTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    tokenizer = Ernie4_5Tokenizer.from_pretrained(model_path, trust_remote_code=True)
     output_tokens_0 = []
     output_ids_0 = []
     for ids in response_0.choices[0].completion_token_ids:
