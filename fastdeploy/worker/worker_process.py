@@ -920,7 +920,10 @@ def initialize_fd_config(args, ranks: int = 1, local_rank: int = 0) -> FDConfig:
             if "is_quantized" in quantization_config:
                 model_config.is_quantized = quantization_config["is_quantized"]
             elif "kv_cache_quant_type" not in quantization_config:
-                model_config.is_quantized = True
+                if "is_moe_quantized" not in quantization_config:
+                    model_config.is_quantized = True
+                else:
+                    model_config.is_moe_quantized = True
 
     quant_config_name = None
     if quantization_config is not None and quantization_config.get("quantization", None) is None:
@@ -958,7 +961,7 @@ def initialize_fd_config(args, ranks: int = 1, local_rank: int = 0) -> FDConfig:
     # Log quantization info
     logger.info("===========quantization_config==============")
     if quant_config is not None:
-        if model_config.is_quantized:
+        if model_config.is_quantized or model_config.is_moe_quantized:
             logger.info("Model Status: Offline Quantized (pre-quantized weights loaded)")
         else:
             logger.info("Model Status: Original (will apply online quantization)")
